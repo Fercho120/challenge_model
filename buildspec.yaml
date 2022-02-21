@@ -1,0 +1,56 @@
+version: 0.2
+
+env:
+  parameter-store:
+    private_key_github: "/ssh/private_key_github"
+    github_mail: "github_mail"
+    account: "account"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR!
+      - aws --version
+      - $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
+      - REPOSITORY_URI=$account.dkr.ecr.us-west-2.amazonaws.com/challenge-model
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+      - GIT_BRANCH=$(echo $CODEBUILD_SOURCE_VERSION)
+      - echo CODEBUILD_WEBHOOK_BASE_REF
+      - echo $CODEBUILD_WEBHOOK_BASE_REF
+      - echo CODEBUILD_WEBHOOK_EVENT
+      - echo $CODEBUILD_WEBHOOK_EVENT
+      - echo CODEBUILD_WEBHOOK_HEAD_REF
+      - echo $CODEBUILD_WEBHOOK_HEAD_REF
+      
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image $COMMIT_HASH ...
+      - docker build -t $REPOSITORY_URI:$COMMIT_HASH .
+      - docker tag $REPOSITORY_URI:$COMMIT_HASH $REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker images $IMAGE_TAG ...
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - cd ..
+      - mkdir -p ~/.ssh
+      - echo "$private_key_github" > ~/.ssh/id_rsa
+      - chmod 0600 ~/.ssh/id_rsa
+      - echo Cloning Serverless Repository  ...
+      - git clone git@github.com:Fercho120/Kueski_Challenge.git
+      - cd Kueski_Challenge
+      - git checkout main
+      - echo Configuring Serverless Repository  ...
+      - git config --global user.email "$github_mail"
+      - git config --global user.name "Fercho120"
+      - echo Replacing Model Docker Image into serverless.yml  ...
+      - sed -i "60s#.*#\ \ \ \ image\:\ $REPOSITORY_URI:$IMAGE_TAG#" serverless.yml
+      - git add serverless.yml
+      - git commit -m "main - change image-docker-model buildspec"
+      - echo Pushing changes Serverless Repository ...
+      - git push origin main
+
+
+
